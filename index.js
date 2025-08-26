@@ -10,6 +10,7 @@ const port = 3000;
 const apiKeys = [
   process.env.KEY1,
   process.env.KEY2,
+  process.env.KEY3,
   // Add more keys here
 ];
 let currentKeyIndex = 0;
