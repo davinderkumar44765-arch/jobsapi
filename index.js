@@ -1,18 +1,20 @@
 import express from 'express';
 import axios from 'axios';
 import ExcelJS from 'exceljs';
-import dotenv from 'dotenv'
-dotenv.config()
+import dotenv from 'dotenv';
+dotenv.config();
+
 const app = express();
 const port = 3000;
 
-// Your API keys rotation setup (update with your keys)
+// ================== API Keys Rotation ==================
 const apiKeys = [
   process.env.KEY1,
   process.env.KEY2,
   process.env.KEY3,
   // Add more keys here
 ];
+
 let currentKeyIndex = 0;
 function getNextApiKey() {
   const key = apiKeys[currentKeyIndex];
@@ -20,7 +22,7 @@ function getNextApiKey() {
   return key;
 }
 
-// Helper to get date string for 1 day ago (YYYY-MM-DD)
+// ================== Date Helpers ==================
 function getOneDayOldDate() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -34,13 +36,14 @@ function getYesterdayDate() {
   d.setDate(d.getDate() - 1);
   return d.toISOString().split('T')[0];
 }
-// Existing APIs + New POST API service with normalize
+
+// ================== API Services ==================
 const apiServices = [
   {
-    name: 'JobsAPI19', // New API you provided
+    name: 'JobsAPI19',
     method: 'GET',
     url: 'https://jobs-api19.p.rapidapi.com/jobs',
-    params: { limit: '50' }, // can increase limit to get enough jobs for filtering
+    params: { limit: '50' },
     normalize: (job) => ({
       id: job.id,
       title: job.title,
@@ -61,9 +64,7 @@ const apiServices = [
       const yesterday = getYesterdayDate();
       return jobs.filter((job) => {
         const dateStr = job.posted_date?.split('T')[0];
-        console.log(dateStr,"-->",today,"-->",yesterday);
-        
-        return dateStr == today || dateStr == yesterday;
+        return dateStr === today || dateStr === yesterday;
       });
     },
   },
@@ -95,36 +96,6 @@ const apiServices = [
       source: 'JSearch',
     }),
   },
-  // {
-  //   name: 'ActiveJobsDB',
-  //   method: 'GET',
-  //   url: 'https://active-jobs-db.p.rapidapi.com/active-ats-24h',
-  //   params: {
-  //     limit: '50',
-  //     offset: '0',
-  //     title_filter: '"Software"',
-  //     advanced_title_filter: 'Software Developer | Software Engineer | Web Developer | App Developer',
-  //     location_filter: '"India"',
-  //     description_type: 'text',
-  //     date_filter: getOneDayOldDate(),
-  //     ai_experience_level_filter: '0-2',
-  //   },
-  //   normalize: (job) => ({
-  //     id: job.id,
-  //     title: job.title,
-  //     organization: job.organization,
-  //     location: job.locations_derived?.join(', ') || '',
-  //     url: job.url,
-  //     description: job.description_text,
-  //     date_posted: job.date_posted,
-  //     employment_type: job.employment_type?.join(', ') || '',
-  //     salary: job.salary || '',
-  //     category: job.category || '',
-  //     remote_onsite: job.remote_onsite || '',
-  //     contact_email: job.contact_email || '',
-  //     source: 'ActiveJobsDB',
-  //   }),
-  // },
   {
     name: 'LinkedInJobs',
     method: 'GET',
@@ -153,48 +124,10 @@ const apiServices = [
       source: 'LinkedInJobs',
     }),
   },
-  // {
-  //   name: 'JobsSearchAPI',
-  //   method: 'POST',
-  //   url: 'https://jobs-search-api.p.rapidapi.com/getjobs',
-  //   // No URL params, use data in POST body
-  //   postData: {
-  //     search_term: 'software',
-  //     location: 'india',
-  //     results_wanted: 50,
-  //     site_name: [
-  //       'indeed',
-  //       'linkedin',
-  //       'zip_recruiter',
-  //       'glassdoor',
-  //     ],
-  //     distance: 10000,
-  //     job_type: 'fulltime',
-  //     is_remote: false,
-  //     linkedin_fetch_description: false,
-  //     hours_old: 24,
-  //   },
-  //   normalize: (job) => ({
-  //     id: job.id,
-  //     title: job.title,
-  //     organization: job.company,
-  //     location: job.location,
-  //     url: job.job_url,
-  //     description: job.description || '',
-  //     date_posted: job.date_posted,
-  //     employment_type: job.job_type || '',
-  //     salary: job.salary_source || '',
-  //     category: job.job_function || '',
-  //     remote_onsite: job.is_remote === "True" ? "Remote" : "Onsite",
-  //     contact_email: job.emails || 'N/A',
-  //     source: job.site || 'JobsSearchAPI',
-  //   }),
-  // },
 ];
 
-// Function to call each API with rotating keys
-async function callApiService(service) {
-  const apiKey = getNextApiKey();
+// ================== API Caller ==================
+async function callApiService(service, apiKey) {
 
   try {
     let response;
@@ -207,7 +140,6 @@ async function callApiService(service) {
         },
       });
     } else {
-      // GET request
       response = await axios.get(service.url, {
         headers: {
           'x-rapidapi-key': apiKey,
@@ -217,28 +149,26 @@ async function callApiService(service) {
       });
     }
 
-    // Extract job list based on service response format
     let jobsRaw = [];
-
     if (service.name === 'JobsSearchAPI') {
       jobsRaw = response.data.jobs || [];
     } else {
       jobsRaw = response.data.data || response.data || [];
     }
 
-    // Normalize jobs
-    const jobs = Array.isArray(jobsRaw)
-      ? jobsRaw.map(service.normalize)
-      : [];
+    // Apply filter if available
+    if (service.filter) {
+      jobsRaw = service.filter(jobsRaw);
+    }
 
-    return { service: service.name, data: jobs };
+    return { service: service.name, data: jobsRaw.map(service.normalize) };
   } catch (error) {
     console.error(`Error calling ${service.name}:`, error.message);
     return { service: service.name, data: [], error: error.message };
   }
 }
 
-// Fallback for missing fields
+// ================== Excel Helpers ==================
 function extractExtraFields(job) {
   return {
     experience_required: job.employment_type || 'Not specified',
@@ -249,9 +179,15 @@ function extractExtraFields(job) {
   };
 }
 
+// ================== Route ==================
 app.get('/combined-jobs', async (req, res) => {
   try {
-    const results = await Promise.all(apiServices.map(callApiService));
+    // 🔑 Rotate once per request
+    const apiKey = getNextApiKey();
+    console.log(`🔄 Using API key for this request: ${apiKey}`);
+
+    // Call all services with same key
+    const results = await Promise.all(apiServices.map(service => callApiService(service, apiKey)));
     const combinedJobs = results.reduce((acc, curr) => acc.concat(curr.data), []);
 
     const workbook = new ExcelJS.Workbook();
@@ -271,26 +207,26 @@ app.get('/combined-jobs', async (req, res) => {
       { header: 'Category', key: 'category', width: 20 },
       { header: 'Remote/Onsite', key: 'remote_onsite', width: 15 },
       { header: 'Contact Email', key: 'contact_email', width: 25 },
-       { header: 'Source', key: 'source', width: 20 },
+      { header: 'Source', key: 'source', width: 20 },
     ];
 
     combinedJobs.forEach(job => {
       const extra = extractExtraFields(job);
-      worksheet.addRow({
-        ...job,
-        ...extra,
-         source: job.source || 'Unknown',
-      });
+      worksheet.addRow({ ...job, ...extra, source: job.source || 'Unknown' });
     });
 
-    const fileName = `${new Date().toISOString().slice(0, 10)}.xlsx`;
+    // Meta sheet to log which key was used
+    const metaSheet = workbook.addWorksheet('Meta');
+    metaSheet.addRow(['API Key Used', apiKey]);
+    metaSheet.addRow(['Generated At', new Date().toISOString()]);
 
+    const fileName = `${new Date().toISOString().slice(0, 10)}.xlsx`;
     const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-
     res.send(buffer);
+
   } catch (err) {
     console.error('Error generating Excel:', err);
     res.status(500).json({
@@ -301,6 +237,7 @@ app.get('/combined-jobs', async (req, res) => {
   }
 });
 
+// ================== Start Server ==================
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}`);
 });
