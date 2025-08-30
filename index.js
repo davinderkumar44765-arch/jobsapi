@@ -10,8 +10,8 @@ const port = 3000;
 // ================== API Keys Rotation ==================
 const apiKeys = [
   process.env.KEY1,
-  process.env.KEY2,
-  process.env.KEY3,
+  // process.env.KEY2,
+  // process.env.KEY3,
   // Add more keys here
 ];
 
